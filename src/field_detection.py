@@ -93,7 +93,7 @@ class FieldDetection():
 
         for line_x in range(self.vertical_lines_offset+5, width, self.vertical_lines_offset):
             wall_points = []
-            for pixel_y in range(height-1, 0, -1):
+            for pixel_y in range(0, height, 1):
                 pixel = src[pixel_y, line_x]
                 if len(wall_points)>self.min_wall_length:
                     boundary_points.append(wall_points[0])
@@ -146,7 +146,9 @@ class FieldDetection():
         segmented_img = self.segmentField(src)
         boundary_points = self.fieldWallDetection(segmented_img)
         field_line_points = self.fieldLineDetection(segmented_img)
-        return boundary_points, field_line_points     
+        infield_img = field_detector.createInFieldImage(img, boundary_points)
+
+        return boundary_points, field_line_points, infield_img     
 
     def detectFieldLinesAndBoundaryMerged(self, src):
         """
@@ -175,6 +177,20 @@ class FieldDetection():
         
         return boundary_points, field_line_points       
 
+    def createInFieldImage(self, src, boundary_points):
+        """
+        Make descripition here
+        """
+        # wall detection points
+        return_img = src
+
+        for point in boundary_points:
+            point_x = point[1]
+            point_y = point[0]
+            for pixel_y in range(point_y-1, 1, -1):
+                return_img[pixel_y,point_x]=self.BLACK
+
+        return return_img
 
 if __name__ == "__main__":
 
@@ -198,7 +214,8 @@ if __name__ == "__main__":
                     min_wall_length=10)
 
     while True:
-        boundary_points, line_points = field_detector.detectFieldLinesAndBoundary(img)
+
+        boundary_points, line_points, img = field_detector.detectFieldLinesAndBoundary(img)
 
         for point in boundary_points:
             pixel_y, pixel_x = point
@@ -207,7 +224,7 @@ if __name__ == "__main__":
         for point in line_points:
             pixel_y, pixel_x = point
             img[pixel_y, pixel_x] = field_detector.RED
-            
+
         cv2.imshow(WINDOW_NAME, img)
 
         key = cv2.waitKey(-1) & 0xFF

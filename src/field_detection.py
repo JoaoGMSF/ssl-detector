@@ -102,7 +102,7 @@ class FieldDetection():
                     wall_points.append([pixel_y, line_x])
                 else:
                     wall_points = []
-
+        
         return boundary_points
 
     def fieldLineDetection(self, src):
@@ -146,9 +146,9 @@ class FieldDetection():
         segmented_img = self.segmentField(src)
         boundary_points = self.fieldWallDetection(segmented_img)
         field_line_points = self.fieldLineDetection(segmented_img)
-        infield_img = field_detector.createInFieldImage(img, boundary_points)
+        #infield_img = field_detector.createInFieldImage(img, boundary_points)
 
-        return boundary_points, field_line_points, infield_img     
+        return boundary_points, field_line_points
 
     def detectFieldLinesAndBoundaryMerged(self, src):
         """
@@ -182,13 +182,13 @@ class FieldDetection():
         Make descripition here
         """
         # wall detection points
-        return_img = src
+        return_img = src.copy()
 
         for point in boundary_points:
-            point_x = point[1]
-            point_y = point[0]
-            for pixel_y in range(point_y-1, 1, -1):
-                return_img[pixel_y,point_x]=self.BLACK
+            pixel_x = point[1]
+            line_y = point[0]
+            for pixel_y in range(line_y-1, 1, -1):
+                return_img[pixel_y,pixel_x]=(0,0,0)
 
         return return_img
 
@@ -215,7 +215,11 @@ if __name__ == "__main__":
 
     while True:
 
-        boundary_points, line_points, img = field_detector.detectFieldLinesAndBoundary(img)
+        boundary_points, line_points = field_detector.detectFieldLinesAndBoundary(img)
+
+        print(boundary_points)
+
+        black_field = field_detector.createInFieldImage(img, boundary_points)
 
         for point in boundary_points:
             pixel_y, pixel_x = point

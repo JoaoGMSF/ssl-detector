@@ -129,6 +129,12 @@ class JetsonVision():
             robot = self.trackRobot(score, xmin, xmax, ymin, ymax)
             self.tracked_robot = robot
         
+    def detectAndTrackObjectsInField(self, src, boundary_points):
+        detections = self.object_detector.inferenceInField(src, boundary_points).detections
+        
+        for detection in detections:
+            self.updateObjectTracking(detection)
+
     def detectAndTrackObjects(self, src):
         detections = self.object_detector.inference(src).detections
         
@@ -177,15 +183,30 @@ class JetsonVision():
         particle_filter_observations: observations used for self-localization algorithm
         """
         self.current_frame = Frame(timestamp=timestamp, input_source=src)
-        if self.has_object_detection:
-            self.detectAndTrackObjects(self.current_frame.input) # 30ms
-        # 42ms with field lines detection, 8~9ms without it
+
+        #Old way. Object detection first and Field detection later 
+
+        # if self.has_object_detection:
+        #     self.detectAndTrackObjects(self.current_frame.input) # 30ms
+        # # 42ms with field lines detection, 8~9ms without it
+        # if self.has_field_detection:
+        #     particle_filter_observations = self.detectAndTrackFieldPoints(self.current_frame.input)
+        # else:
+        #     particle_filter_observations = []
+        # processed_vision = self.current_frame, self.tracked_ball, self.tracked_goal, self.tracked_robot, particle_filter_observations
+        # # processed_vision = self.current_frame, self.tracked_ball, self.tracked_goal, self.tracked_robot
+
         if self.has_field_detection:
             particle_filter_observations = self.detectAndTrackFieldPoints(self.current_frame.input)
         else:
             particle_filter_observations = []
         processed_vision = self.current_frame, self.tracked_ball, self.tracked_goal, self.tracked_robot, particle_filter_observations
         # processed_vision = self.current_frame, self.tracked_ball, self.tracked_goal, self.tracked_robot
+        if self.has_object_detection:
+            #self.detectAndTrackObjects(self.current_frame.input) # 30ms
+            self.detectAndTrackObjectsInField(self.current_frame.input, particle_filter_observations[0])
+        # 42ms with field lines detection, 8~9ms without it
+
 
         return processed_vision
         

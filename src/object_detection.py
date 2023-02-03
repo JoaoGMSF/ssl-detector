@@ -140,6 +140,95 @@ class DetectNet():
         normalized_im = np.expand_dims(normalized_im, axis=0)
         return normalized_im
 
+    def inferenceInField(self, img, boundary_points):
+        # ORIGINAL IMAGE DIMENSIONS
+        capture_height = int(img.shape[0])
+        capture_width = int(img.shape[1]) 
+
+        # CONVERT IMAGE FORMAT
+        cvt_img = self.convertImage(img, 
+                                width=self.input_width,
+                                height=self.input_height
+                                )
+
+        start = time.perf_counter()
+        self.model.inputs[0].host = cvt_img
+        trt_outputs = trt_common.do_inference_v2(
+            context=self.model.context, 
+            bindings=self.model.bindings, 
+            inputs=self.model.inputs, 
+            outputs=self.model.outputs, 
+            stream=self.model.stream
+        )
+        inference_time = (time.perf_counter() - start) * 1000
+
+        boxes = trt_outputs[1].reshape([-1, 4])
+        detections = []
+        for index in range(int(trt_outputs[0])):
+            box = boxes[index]
+        for index, box in enumerate(boxes):
+            if trt_outputs[2][index] < self.score_threshold:
+                continue
+        
+            # BOUNDING BOX COORDINATES
+            class_id = int(trt_outputs[3][index])
+            score = trt_outputs[2][index]
+
+            xmin = int(box[0] * capture_width)
+            xmax = int(box[2] * capture_width)
+            ymin = int(box[1] * capture_height)
+            ymax = int(box[3] * capture_height)
+            detection = (class_id, score, xmin, xmax, ymin, ymax)
+
+            #Verify if detection is infield 
+
+            x_boundary_points = [x[1] for x in boundary_points] 
+ 
+            #maybe i will need to change (if ymin < boundary_points[index][0]) if the index of the rows increases top-down
+
+            try:
+                index = x_boundary_points.index(xmin)
+                if ymin > boundary_points[index][0]:
+                    detections.append(detection)
+                    if self.draw:
+                        caption = "{0}({1:.2f})".format(self.labels[class_id - 1], score)
+                        self.draw_rectangle(img, (xmin, ymin, xmax, ymax), self.colors[class_id - 1])
+                        #self.draw_caption(img, (xmin, ymax - 5), caption)
+            except ValueError:
+                try:
+                    print("object_detection: wall not detected for xmin")
+                    index = x_boundary_points.index(xmax)
+                    if ymin > boundary_points[index][0]:
+                        detections.append(detection)  
+                        if self.draw:
+                            caption = "{0}({1:.2f})".format(self.labels[class_id - 1], score)
+                            self.draw_rectangle(img, (xmin, ymin, xmax, ymax), self.colors[class_id - 1])
+                            #self.draw_caption(img, (xmin, ymax - 5), caption)
+                except ValueError:
+                    print("object_detection: wall not detected for xmax")
+                    detections.append(detection)  
+                    if self.draw:
+                        caption = "{0}({1:.2f})".format(self.labels[class_id - 1], score)
+                        self.draw_rectangle(img, (xmin, ymin, xmax, ymax), self.colors[class_id - 1])
+                        #self.draw_caption(img, (xmin, ymax - 5), caption)
+        
+        self.detections = detections
+
+        # COMPUTE AVG FPS
+        '''self.elapsed_list.append(inference_time)
+        avg_text = ""
+        if len(self.elapsed_list) > 100:
+            self.elapsed_list.pop(0)
+            avg_elapsed_ms = np.mean(self.elapsed_list)
+            avg_text = " AGV: {0:.2f}ms".format(avg_elapsed_ms)
+        
+        # DISPLAY FPS
+        fps_text = "Inference: {0:.2f}ms".format(inference_time)
+        display_text = fps_text + avg_text
+        if self.display_fps: self.draw_caption(img, (10, 30), display_text)'''
+        return self
+
+
     def inference(self, img):
         # ORIGINAL IMAGE DIMENSIONS
         capture_height = int(img.shape[0])

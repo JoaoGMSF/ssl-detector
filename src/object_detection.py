@@ -1,3 +1,4 @@
+from field_detection import FieldDetection
 import tensorrt as trt
 import numpy as np
 import time
@@ -310,6 +311,11 @@ if __name__ == "__main__":
                 TRT_LOGGER = trt.Logger(trt.Logger.INFO)
                 )
     
+    field_detector = FieldDetection(
+        vertical_lines_offset = 320,
+        min_wall_length = 10
+        )
+
     trt_net.loadModel()
 
     start_time = time.time()
@@ -322,7 +328,9 @@ if __name__ == "__main__":
                break
            else: img = frame
 
-        detections = trt_net.inference(img).detections
+        boundary_points = field_detector.fieldWallDetection(img)
+
+        detections = trt_net.inferenceInField(img, boundary_points).detections
 
         for detection in detections:
             class_id, score, xmin, xmax, ymin, ymax = detection

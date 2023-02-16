@@ -189,6 +189,9 @@ class DetectNet():
 
             try:
                 index = x_boundary_points.index(xmin)
+                print(f"ymin: {ymin}")
+                print(f"ymax: {ymax}")
+                print(f"ywall: {boundary_points[index][0]}")
                 if ymin > boundary_points[index][0]:
                     detections.append(detection)
                     if self.draw:
@@ -312,9 +315,10 @@ if __name__ == "__main__":
                 )
     
     field_detector = FieldDetection(
-        vertical_lines_offset = 320,
-        min_wall_length = 10
-        )
+        vertical_lines_offset=1,
+        min_line_length=1,
+        max_line_length=20,
+        min_wall_length=10)
 
     trt_net.loadModel()
 
@@ -329,7 +333,6 @@ if __name__ == "__main__":
            else: img = frame
 
         boundary_points = field_detector.fieldWallDetection(img)
-
         detections = trt_net.inferenceInField(img, boundary_points).detections
 
         for detection in detections:

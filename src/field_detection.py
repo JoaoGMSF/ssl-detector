@@ -27,6 +27,28 @@ class FieldDetection():
 
         self.mask_points = []
     
+
+    # def isBlack(self, src):
+    #     blue, green, red = src
+    #     if green < 50 and red < 50 and blue < 50:
+    #         return True
+    #     else:
+    #         return False
+    
+    # def isGreen(self, src):
+    #     blue, green, red = src
+    #     if green > 90 and red < 110:
+    #         return True
+    #     else:
+    #         return False     
+
+    # def isWhite(self, src):
+    #     blue, green, red = src
+    #     if blue > 130 and green > 130 and red > 130:
+    #         return True
+    #     else:
+    #         return False
+
     def isBlack(self, src):
         blue, green, red = src
         if green < 50 and red < 50 and blue < 50:
@@ -49,17 +71,35 @@ class FieldDetection():
             return False
 
     def segmentPixel(self, src):
-        if self.isWhite(src):
-            color = self.WHITE
-            return color        
-        elif self.isBlack(src):
+        dis_black = np.linalg.norm(src-self.BLACK)
+        dis_green = np.linalg.norm(src-self.GREEN)
+        dis_white = np.linalg.norm(src-self.WHITE)
+        colour_vector = np.array((dis_black,dis_green,dis_white))
+        min = np.min(colour_vector)
+        if min == dis_black:
             color = self.BLACK
             return color
-        elif self.isGreen(src):
+        elif min == dis_green:
             color = self.GREEN
+            return color 
+        elif min == dis_white:
+            color = self.WHITE
             return color
         else:
             return src
+
+    # def segmentPixel(self, src):
+    #     if self.isWhite(src):
+    #         color = self.WHITE
+    #         return color        
+    #     elif self.isBlack(src):
+    #         color = self.BLACK
+    #         return color
+    #     elif self.isGreen(src):
+    #         color = self.GREEN
+    #         return color
+    #     else:
+    #         return src
     
     def segmentField(self, src):
         """
@@ -93,7 +133,7 @@ class FieldDetection():
 
         for line_x in range(self.vertical_lines_offset+5, width, self.vertical_lines_offset):
             wall_points = []
-            for pixel_y in range(0, height, 1):
+            for pixel_y in range(height-1, 0, -1):
                 pixel = src[pixel_y, line_x]
                 if len(wall_points)>self.min_wall_length:
                     boundary_points.append(wall_points[0])
@@ -198,7 +238,8 @@ if __name__ == "__main__":
 
     FRAME_NR = 5
     STAGE = 2
-    IMG_PATH = cwd + f'/data/stage{STAGE}/frame{FRAME_NR}.jpg'
+    # IMG_PATH = cwd + f'/data/stage{STAGE}/frame{FRAME_NR}.jpg'
+    IMG_PATH = cwd + '/images/off-field-reconhecimento.png'
     WINDOW_NAME = "BOUNDARY DETECTION"
     VERTICAL_LINES_NR = 1
 
@@ -217,7 +258,7 @@ if __name__ == "__main__":
 
         boundary_points, line_points = field_detector.detectFieldLinesAndBoundary(img)
 
-        print(boundary_points)
+        # print(boundary_points)
 
         black_field = field_detector.createInFieldImage(img, boundary_points)
 
@@ -225,9 +266,9 @@ if __name__ == "__main__":
             pixel_y, pixel_x = point
             img[pixel_y, pixel_x] = field_detector.RED
 
-        for point in line_points:
-            pixel_y, pixel_x = point
-            img[pixel_y, pixel_x] = field_detector.RED
+        # for point in line_points:
+        #     pixel_y, pixel_x = point
+        #     img[pixel_y, pixel_x] = field_detector.RED
 
         cv2.imshow(WINDOW_NAME, img)
 

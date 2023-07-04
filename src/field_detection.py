@@ -29,7 +29,7 @@ class FieldDetection():
         # line scans offset
         self.vertical_lines = []
         self.vertical_lines_nr = vertical_lines_nr
-        self.arrangeVerticalLinesUniform(vertical_lines_offset, img_width=640)
+        self.arrangeVerticalLinesRandom(img_width=640)
 
         self.mask_points = []
     
@@ -69,43 +69,38 @@ class FieldDetection():
             return False
 
     def segmentPixel(self, src):
-        dis_black = abs(src[1]-0)
-        dis_green = abs(src[1]-255)
-        minimo = min(dis_black,dis_green)
-        if minimo == dis_black:
-            color = self.BLACK
-            return color
+        hue, saturation, value = src
+        if (hue>=55 and hue<=85) and saturation>=50:
+            src = self.GREEN
         else:
-            src_2d_vector = np.mean([src[0],src[2]])
-            segmentation_treshold = 210
-            if src_2d_vector>segmentation_treshold:
-                color = self.WHITE
-                return color
-            elif src_2d_vector<=segmentation_treshold:
-                color = self.GREEN
-                return color           
+            if value>=100:
+                src = self.WHITE
             else:
-                return src
-    
-    @cuda.jit
-    def segmentField(src):
+                src = self.BLACK    
+        return src
+
+
+    def segmentField(self, src):
         """
         Make description here
         """
-        x = cuda.threadIdx.x
-        y = cuda.blockIdx.x 
-        
-        
-        rmse_black = math.sqrt((((src[x,y,0])**2)+((src[x,y,2])**2))/2)
-        if rmse_black <= 50:
-            src[x,y] = [0,0,0]
-        else:
-            rmse_white = math.sqrt((((src[x,y,0]-255)**2)+((src[x,y,2]-255)**2))/2)
-            segmentation_treshold = 210
-            if rmse_white <= 40:
-                src[x,y] = [255,255,255]
-            else:
-                src[x,y] = [0,255,0]
+        # make copy from source image for segmentation
+        # segmented_img = src.copy()
+        hsv = src
+        segmented_img = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
+
+        # height and width from image resolution
+        height, width = src.shape[0], src.shape[1]
+
+        for line_x in self.vertical_lines:
+            # segment vertical lines
+            for pixel_y in range(0, height):
+                pixel = segmented_img[pixel_y, line_x]
+                color = self.segmentPixel(pixel)
+                segmented_img[pixel_y, line_x] = color
+
+        return segmented_img        
+    
 
     def fieldWallDetection(self, src):
         """
@@ -165,35 +160,46 @@ class FieldDetection():
 
         return field_line_points      
 
+    # def detectFieldLinesAndBoundary(self, src):
+    #     """
+    #     Make description here
+    #     """
+
+    #     lines, _, _ = src.shape
+    #     # threads_per_block = (int(lines / 4))
+    #     # blocks_per_grid = (int(4 * len(self.vertical_lines)))
+
+    #     threads_per_block = lines
+    #     blocks_per_grid = len(self.vertical_lines)
+
+
+    #     segmented_columns = np.ascontiguousarray(src[:,self.vertical_lines])
+        
+    #     start = time.time()
+        
+    #     self.segmentField[blocks_per_grid, threads_per_block](segmented_columns)
+        
+    #     end = time.time() - start
+
+    #     for i,j in enumerate(self.vertical_lines):
+    #         src[:,j] = segmented_columns[:,i]
+
+    #     print(f"tempo de execução pra gerar linhas {end}")
+        
+    #     # segmented_img = self.segmentField(src)
+    #     boundary_points = self.fieldWallDetection(src)
+    #     field_line_points = self.fieldLineDetection(src)
+    #     return boundary_points, field_line_points     
+
     def detectFieldLinesAndBoundary(self, src):
         """
         Make description here
         """
 
-        lines, _, _ = src.shape
-        # threads_per_block = (int(lines / 4))
-        # blocks_per_grid = (int(4 * len(self.vertical_lines)))
-
-        threads_per_block = lines
-        blocks_per_grid = len(self.vertical_lines)
-
-
-        segmented_columns = np.ascontiguousarray(src[:,self.vertical_lines])
-        
-        start = time.time()
-        
-        self.segmentField[blocks_per_grid, threads_per_block](segmented_columns)
-        
-        end = time.time() - start
-
-        for i,j in enumerate(self.vertical_lines):
-            src[:,j] = segmented_columns[:,i]
-
-        print(f"tempo de execução pra gerar linhas {end}")
-        
-        # segmented_img = self.segmentField(src)
+        segmented_img = self.segmentField(src)
         boundary_points = self.fieldWallDetection(src)
         field_line_points = self.fieldLineDetection(src)
+
         return boundary_points, field_line_points     
 
     def detectFieldLinesAndBoundaryMerged(self, src):
@@ -245,7 +251,7 @@ if __name__ == "__main__":
 
     while True:
         IMG_PATH = cwd + f"/data/quadrado{QUADRADO}/{FRAME_NR}.jpg"
-        file = glob(IMG_PATH)
+        #file = glob(IMG_PATH)
         img = cv2.imread(IMG_PATH)
 
         field_detector.arrangeVerticalLinesRandom()

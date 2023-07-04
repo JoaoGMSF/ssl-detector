@@ -1,4 +1,7 @@
+from numba import cuda
 import numpy as np
+import time
+import math
 import cv2
 import os
 
@@ -66,38 +69,44 @@ class FieldDetection():
             return False
 
     def segmentPixel(self, src):
-        if self.isWhite(src):
-            color = self.WHITE
-            return color        
-        elif self.isBlack(src):
+        dis_black = abs(src[1]-0)
+        dis_green = abs(src[1]-255)
+        minimo = min(dis_black,dis_green)
+        if minimo == dis_black:
             color = self.BLACK
             return color
-        elif self.isGreen(src):
-            color = self.GREEN
-            return color
         else:
-            return src
+            src_2d_vector = np.mean([src[0],src[2]])
+            segmentation_treshold = 210
+            if src_2d_vector>segmentation_treshold:
+                color = self.WHITE
+                return color
+            elif src_2d_vector<=segmentation_treshold:
+                color = self.GREEN
+                return color           
+            else:
+                return src
     
-    def segmentField(self, src):
+    @cuda.jit
+    def segmentField(src):
         """
         Make description here
         """
-        # make copy from source image for segmentation
-        # segmented_img = src.copy()
-        segmented_img = src
+        x = cuda.threadIdx.x
+        y = cuda.blockIdx.x 
+        
+        
+        rmse_black = math.sqrt((((src[x,y,0])**2)+((src[x,y,2])**2))/2)
+        if rmse_black <= 50:
+            src[x,y] = [0,0,0]
+        else:
+            rmse_white = math.sqrt((((src[x,y,0]-255)**2)+((src[x,y,2]-255)**2))/2)
+            segmentation_treshold = 210
+            if rmse_white <= 40:
+                src[x,y] = [255,255,255]
+            else:
+                src[x,y] = [0,255,0]
 
-        # height and width from image resolution
-        height, width = src.shape[0], src.shape[1]
-
-        for line_x in self.vertical_lines:
-            # segment vertical lines
-            for pixel_y in range(0, height):
-                pixel = src[pixel_y, line_x]
-                color = self.segmentPixel(pixel)
-                segmented_img[pixel_y, line_x] = color
-
-        return segmented_img        
-    
     def fieldWallDetection(self, src):
         """
         Make descripition here
@@ -160,9 +169,31 @@ class FieldDetection():
         """
         Make description here
         """
-        segmented_img = self.segmentField(src)
-        boundary_points = self.fieldWallDetection(segmented_img)
-        field_line_points = self.fieldLineDetection(segmented_img)
+
+        lines, _, _ = src.shape
+        # threads_per_block = (int(lines / 4))
+        # blocks_per_grid = (int(4 * len(self.vertical_lines)))
+
+        threads_per_block = lines
+        blocks_per_grid = len(self.vertical_lines)
+
+
+        segmented_columns = np.ascontiguousarray(src[:,self.vertical_lines])
+        
+        start = time.time()
+        
+        self.segmentField[blocks_per_grid, threads_per_block](segmented_columns)
+        
+        end = time.time() - start
+
+        for i,j in enumerate(self.vertical_lines):
+            src[:,j] = segmented_columns[:,i]
+
+        print(f"tempo de execução pra gerar linhas {end}")
+        
+        # segmented_img = self.segmentField(src)
+        boundary_points = self.fieldWallDetection(src)
+        field_line_points = self.fieldLineDetection(src)
         return boundary_points, field_line_points     
 
     def detectFieldLinesAndBoundaryMerged(self, src):
@@ -206,18 +237,21 @@ if __name__ == "__main__":
     # FIELD DETECTION TESTS
     field_detector = FieldDetection(
                     vertical_lines_offset=320,
-                    vertical_lines_nr=1,
+                    vertical_lines_nr=20,
                     min_line_length=1,
                     max_line_length=20,
                     min_wall_length=10)
     print(field_detector.vertical_lines)
 
     while True:
-        IMG_PATH = cwd + f"/data/quadrado{QUADRADO}/{FRAME_NR}_*.jpg"
+        IMG_PATH = cwd + f"/data/quadrado{QUADRADO}/{FRAME_NR}.jpg"
         file = glob(IMG_PATH)
-        img = cv2.imread(file[-1])
+        img = cv2.imread(IMG_PATH)
 
         field_detector.arrangeVerticalLinesRandom()
+
+        start = time.time()
+
         boundary_points, line_points = field_detector.detectFieldLinesAndBoundary(img)
 
         for point in boundary_points:

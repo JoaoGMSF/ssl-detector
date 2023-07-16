@@ -5,6 +5,7 @@ import math
 import cv2
 import os
 
+
 class FieldDetection():
     def __init__(
             self,
@@ -12,7 +13,8 @@ class FieldDetection():
             vertical_lines_nr = 1,
             min_line_length = 1,
             max_line_length = 20,
-            min_wall_length = 10
+            min_wall_length = 10,
+            arrange_random = False
             ):
         # DEFINE COLORS:
         self.BLACK = [0, 0, 0]
@@ -29,13 +31,25 @@ class FieldDetection():
         # line scans offset
         self.vertical_lines = []
         self.vertical_lines_nr = vertical_lines_nr
-        self.arrangeVerticalLinesRandom(img_width=640)
+        self.arrangeLines(arrange_random)
+
+        #points detectes
+        self.boundary = []
+
+        self.segmented_image=[[[]]]
 
         self.mask_points = []
     
-    def arrangeVerticalLinesUniform(self, vertical_lines_offset = 320, img_width = 640):
+    def arrangeLines(self, arrange_random):
+        if arrange_random:
+            self.arrangeVerticalLinesRandom(img_width=640)
+        else:
+            self.arrangeVerticalLinesUniform(img_width=640)
+
+    def arrangeVerticalLinesUniform(self, img_width = 640):
         vertical_lines = []
-        for line_x in range(vertical_lines_offset, self.vertical_lines_nr*vertical_lines_offset+1, vertical_lines_offset):
+        vertical_lines_offset = (img_width)/(self.vertical_lines_nr+1)
+        for line_x in range(int(vertical_lines_offset), int(self.vertical_lines_nr*vertical_lines_offset)+1, int(vertical_lines_offset)):
             if line_x>5 and line_x<img_width-5: vertical_lines.append(line_x)
             else: print(f"Detection line out of resolution bounds! Vertical position:Line {line_x}")
         self.vertical_lines = vertical_lines
@@ -78,6 +92,58 @@ class FieldDetection():
             else:
                 src = self.BLACK    
         return src
+
+    def validateBoundaryPoints(boundary, height_threshold=20):
+        pass
+
+    def projectBoundaryLine(self, y1, x1, orientation, is_degree = False):
+        if is_degree: orientation = np.deg2rad(orientation)
+        a = np.tan(orientation)
+        b = (y1-1) - a*(x1-1)
+        x2 = int(x1+40)
+        y2 = int(a*x2 + b)
+        return (x1, y1), (x2, y2)
+
+    def getBoundaryPointsOrientation(self, src, boundary_points):
+        boundary_ground_points_orientation = []
+        for point in boundary_points:
+            pixel_y, pixel_x = point
+            # paint pixel for debug and documentation
+            src[pixel_y, pixel_x] = self.RED
+            cv2.drawMarker(src, (pixel_x, pixel_y), color=self.RED)
+            _, orientation = self.sobel(src, point)
+            boundary_ground_points_orientation.append(([pixel_y,pixel_x], orientation))
+        return boundary_ground_points_orientation
+
+    def sobel(self, src, pixel):
+        pixel_y, pixel_x = pixel
+        A = src[pixel_y-1:pixel_y+2, pixel_x-1:pixel_x+2]
+        # blur = cv2.GaussianBlur(A,(3,3),0)
+        gray = cv2.cvtColor(A, cv2.COLOR_RGB2GRAY)
+        kernel_x = np.array([
+            [-1, 0, 1],
+            [-2, 0, 2],
+            [-1, 0, 1]
+        ])
+        kernel_y = np.array([
+            [-1, -2, -1],
+            [0, 0, 0],
+            [1, 2, 1]
+        ])
+        #import pdb;pdb.set_trace()
+        Gx = sum(sum(kernel_x*gray))
+        Gy = sum(sum(kernel_y*gray))
+        magnitude = np.sqrt(Gx**2 + Gy**2)
+        orientation = np.arctan2(Gy, Gx)
+        pt1, pt2 = self.projectBoundaryLine(pixel_y, pixel_x, orientation+np.pi/2)
+        pt1_y= int(pt1[0])
+        pt1_x= int(pt1[1])
+        pt2_y= int(pt2[0])
+        pt2_x= int(pt2[1])
+        # import pdb;pdb.set_trace()
+        cv2.line(src,pt1,pt2,color=(0,255,0), thickness=2)
+
+        return magnitude, np.rad2deg(orientation)
 
 
     def segmentField(self, src):
@@ -159,37 +225,7 @@ class FieldDetection():
                         line_points.append([pixel_y, line_x])
 
         return field_line_points      
-
-    # def detectFieldLinesAndBoundary(self, src):
-    #     """
-    #     Make description here
-    #     """
-
-    #     lines, _, _ = src.shape
-    #     # threads_per_block = (int(lines / 4))
-    #     # blocks_per_grid = (int(4 * len(self.vertical_lines)))
-
-    #     threads_per_block = lines
-    #     blocks_per_grid = len(self.vertical_lines)
-
-
-    #     segmented_columns = np.ascontiguousarray(src[:,self.vertical_lines])
-        
-    #     start = time.time()
-        
-    #     self.segmentField[blocks_per_grid, threads_per_block](segmented_columns)
-        
-    #     end = time.time() - start
-
-    #     for i,j in enumerate(self.vertical_lines):
-    #         src[:,j] = segmented_columns[:,i]
-
-    #     print(f"tempo de execução pra gerar linhas {end}")
-        
-    #     # segmented_img = self.segmentField(src)
-    #     boundary_points = self.fieldWallDetection(src)
-    #     field_line_points = self.fieldLineDetection(src)
-    #     return boundary_points, field_line_points     
+ 
 
     def detectFieldLinesAndBoundary(self, src):
         """
@@ -199,6 +235,7 @@ class FieldDetection():
         segmented_img = self.segmentField(src)
         boundary_points = self.fieldWallDetection(src)
         field_line_points = self.fieldLineDetection(src)
+        self.boundary = self.getBoundaryPointsOrientation(src, boundary_points=boundary_points)
 
         return boundary_points, field_line_points     
 

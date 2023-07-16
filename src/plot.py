@@ -68,6 +68,73 @@ def draw_cross_marker(img, center_x, center_y, color=(255,0,0), display_text=Tru
                     size=text_size
                     )
 
+def plot_boundary_orientation(boundary):
+    boundary_x = [x[0][1] for x in boundary]
+    orientations = [orientation[1] for orientation in boundary]
+    plt.scatter(orientations,boundary_x)
+    plt.xlim(60, 120) 
+    plt.ylim(0, 640)  # Limite do eixo x de 0 a 6
+    plt.xlabel("orientations")
+    plt.ylabel("x dos boundarys")
+    plt.title('Gráfico de Exemplo')
+    plt.show(block=False)
+
+# def plot_gaussian_distribution(boundary):
+#     orientations = [orientation[1] for orientation in boundary]
+
+#     media = np.mean(orientations)
+#     desvio_padrao = np.std(orientations)
+#     print(orientations)
+#     # x = np.linspace(min(orientations), max(orientations), 100)
+#     x = np.linspace(min(orientations), max(orientations), 50)
+#     # y = (1 / (desvio_padrao * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - media) / desvio_padrao) ** 2)
+#     y = (1 / (desvio_padrao * np.sqrt(2 * np.pi))) * np.exp(-0.5 * ((x - media) / desvio_padrao) ** 2)
+
+
+#     # Plotar o histograma dos pontos
+#     plt.hist(orientations, bins='auto', density=True, alpha=0.5, label='Pontos')
+
+#     # Plotar a função gaussiana
+#     plt.plot(x, y, color='red', label='Distribuição Gaussiana')
+
+#     # Configurar o gráfico
+#     plt.xlabel('Valores')
+#     plt.ylabel('Probabilidade')
+#     plt.title('Distribuição dos pontos')
+#     plt.legend()
+
+#     # Exibir o gráfico
+#     plt.show(block=False)
+
+def plot_gaussian_distribution(boundary):
+    orientations = [int(orientation[1]) for orientation in boundary]
+    
+    print(f'orient: {orientations}, std:{np.std(orientations)}')
+    
+    # Plot do histograma
+    plt.hist(orientations, bins=15, range=(60,120))  # O parâmetro "density=True" normaliza o histograma
+    plt.xlabel('Valores')
+    plt.ylabel('Probabilidade')
+    plt.title('Função de Probabilidade')
+    plt.show(block=False)
+
+def plot_frequency_distribution(boundary):
+    orientations = [orientation[1] for orientation in boundary]
+
+    plt.hist(orientations, bins=20, density=True)  # bins define o número de barras do histograma
+    print(orientations)
+
+    # Configuração do eixo x
+    plt.xlabel('Valores')
+    plt.ylabel('Densidade de Frequência')
+
+    # Cálculo da porcentagem de cada barra
+    contagens, bin_edges = np.histogram(orientations, bins=20, density=True)
+    porcentagens = contagens * np.diff(bin_edges)
+
+    # Exibição do gráfico
+    plt.show()
+
 if __name__ == "__main__":
     cwd = os.getcwd()
 

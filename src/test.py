@@ -18,31 +18,39 @@ if __name__ == "__main__":
     # FIELD DETECTION TESTS
     field_detector = FieldDetection(
                     vertical_lines_offset=320,
-                    vertical_lines_nr=12,
+                    vertical_lines_nr=1,
                     min_line_length=1,
                     max_line_length=20,
-                    min_wall_length=10,
+                    min_wall_length=5,
                     arrange_random=False)
     print(field_detector.vertical_lines)
 
     while True:
         IMG_PATH = cwd + f"/data/quadrado{QUADRADO}/{FRAME_NR}.jpg"
         img = cv2.imread(IMG_PATH)
+        img_copy = img.copy()
 
-        boundary_points, line_points = field_detector.detectFieldLinesAndBoundary(img)
+        preprocessed = field_detector.preprocess(img_copy, field_detector.vertical_lines)
+        segmented_img = field_detector.segmentField(preprocessed, field_detector.vertical_lines)
+        boundary_points, window_boundary_points = field_detector.fieldWallDetection(segmented_img)
+        field_detector.boundary = boundary_points
 
-        for point in boundary_points:
+        print(f'boundary_points = {boundary_points}')
+        print(f'window_boundary_points = {window_boundary_points}')
+
+        line_points = field_detector.fieldLineDetection(segmented_img)
+
+        for point in window_boundary_points:
             pixel_y, pixel_x = point
-            img[pixel_y, pixel_x] = field_detector.RED
-
+            segmented_img[pixel_y, pixel_x] = field_detector.RED
         for point in line_points:
             pixel_y, pixel_x = point
-            img[pixel_y, pixel_x] = field_detector.BLUE
-            
-  
-        cv2.imshow(WINDOW_NAME, img)
-        # plot.plot_boundary_orientation(field_detector.boundary)
-        plot.plot_gaussian_distribution(field_detector.boundary)
+            segmented_img[pixel_y, pixel_x] = field_detector.BLUE
+        
+        acc, rhos, theta = field_detector.line_detection_non_vectorized(image=segmented_img, boundary_points=window_boundary_points)
+
+        print(f'FRAME_NR = {FRAME_NR}')
+        cv2.imshow("segmented", segmented_img)
 
 
         subprocess.call(['xdotool', 'search', '--name', WINDOW_NAME, 'windowactivate'])

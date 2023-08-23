@@ -1,4 +1,3 @@
-from numba import cuda
 import numpy as np
 import time
 import math
@@ -14,6 +13,8 @@ class FieldDetection():
             min_line_length = 1,
             max_line_length = 20,
             min_wall_length = 10,
+            min_goal_length = 30,
+            height_threshold = 10,
             arrange_random = False
             ):
         # DEFINE COLORS:
@@ -27,6 +28,8 @@ class FieldDetection():
         self.min_line_length = min_line_length
         self.max_line_length = max_line_length
         self.min_wall_length = min_wall_length
+        self.min_goal_length = min_goal_length
+        self.height_threshold = height_threshold
 
         # line scans offset
         self.vertical_lines = []
@@ -84,19 +87,46 @@ class FieldDetection():
 
     def segmentPixel(self, src):
         hue, saturation, value = src
-        if (hue>=55 and hue<=85) and saturation>=50:
-            src = self.GREEN
+        if (hue>=55 and hue<=85) and saturation>=70:
+            src = [60,255,255]
         else:
             if value>=100:
-                src = self.WHITE
+                src = [0,0,255]
             else:
-                src = self.BLACK    
+                src = [0,0,0]
         return src
 
-    def validateBoundaryPoints(boundary, height_threshold=20):
-        pass
+    def preprocess(self, img, lines):
+        splited_img = None
+        new_img = img
+        for line in lines:
+            splited_img = img[:, line-2:line+3]
+            kernel = np.ones((5, 5), np.uint8)
+            img_dilation = cv2.erode(splited_img, kernel, iterations=1)
+            blur = cv2.GaussianBlur(img_dilation,(3,3),0)
+            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+            new_img[:, line-2:line+3] = hsv 
+        
+        return new_img
+    
+    def preprocessWindow(self, img, point, boundary_window):
+        splited_img = img[point[0]-boundary_window:point[0]+boundary_window, point[1]-boundary_window:point[1]+boundary_window]
+        kernel = np.ones((5, 5), np.uint8)
+        img_dilation = cv2.erode(splited_img, kernel, iterations=1)
+        blur = cv2.GaussianBlur(img_dilation,(3,3),0)
+        hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+
+        cv2.imshow("hsv", hsv)
+
+        key = cv2.waitKey(-1) & 0xFF
+        if key == ord('q'):
+            cv2.destroyAllWindows()
+        return hsv
 
     def projectBoundaryLine(self, y1, x1, orientation, is_degree = False):
+        """
+        função auxiliar para printar uma linha na imagem
+        """
         if is_degree: orientation = np.deg2rad(orientation)
         a = np.tan(orientation)
         b = (y1-1) - a*(x1-1)
@@ -105,6 +135,10 @@ class FieldDetection():
         return (x1, y1), (x2, y2)
 
     def getBoundaryPointsOrientation(self, src, boundary_points):
+        """
+        Recebe os pontos de borda, aplica o sobel, printa uma cruz no ponto, e retorna os pontos de borda no formato
+        ([pixel_y,pixel_x], orientation)
+        """
         boundary_ground_points_orientation = []
         for point in boundary_points:
             pixel_y, pixel_x = point
@@ -115,50 +149,100 @@ class FieldDetection():
             boundary_ground_points_orientation.append(([pixel_y,pixel_x], orientation))
         return boundary_ground_points_orientation
 
-    def sobel(self, src, pixel):
-        pixel_y, pixel_x = pixel
-        A = src[pixel_y-1:pixel_y+2, pixel_x-1:pixel_x+2]
-        # blur = cv2.GaussianBlur(A,(3,3),0)
-        gray = cv2.cvtColor(A, cv2.COLOR_RGB2GRAY)
-        kernel_x = np.array([
-            [-1, 0, 1],
-            [-2, 0, 2],
-            [-1, 0, 1]
-        ])
-        kernel_y = np.array([
-            [-1, -2, -1],
-            [0, 0, 0],
-            [1, 2, 1]
-        ])
-        #import pdb;pdb.set_trace()
-        Gx = sum(sum(kernel_x*gray))
-        Gy = sum(sum(kernel_y*gray))
-        magnitude = np.sqrt(Gx**2 + Gy**2)
-        orientation = np.arctan2(Gy, Gx)
-        pt1, pt2 = self.projectBoundaryLine(pixel_y, pixel_x, orientation+np.pi/2)
-        pt1_y= int(pt1[0])
-        pt1_x= int(pt1[1])
-        pt2_y= int(pt2[0])
-        pt2_x= int(pt2[1])
-        # import pdb;pdb.set_trace()
-        cv2.line(src,pt1,pt2,color=(0,255,0), thickness=2)
 
-        return magnitude, np.rad2deg(orientation)
+    def line_detection_non_vectorized(self, image,  boundary_points, num_rhos=1000, num_thetas=1000, t_count=220):
+        
+        boundary = boundary_points
+        edge_height, edge_width, _ = image.shape
+        #
+        d = np.sqrt(np.square(edge_height) + np.square(edge_width))
+        dtheta = 180 / num_thetas
+        drho = (2 * d) / num_rhos
+        #
+        thetas = np.arange(0, 180, step=dtheta)
+        rhos = np.arange(-d, d, step=drho)
+
+        #
+        cos_thetas = np.cos(np.deg2rad(thetas))
+        sin_thetas = np.sin(np.deg2rad(thetas))
+
+        #
+        accumulator = np.zeros((len(rhos), len(rhos)))
+        #
+
+        for edge_point in boundary:
+            for theta_idx in range(len(thetas)):
+                rho = (edge_point[1] * cos_thetas[theta_idx]) + (edge_point[0] * sin_thetas[theta_idx])
+                theta = thetas[theta_idx]
+                rho_idx = np.argmin(np.abs(rhos - rho))
+                accumulator[rho_idx][theta_idx] += 1
+
+        maximun_acc = []
+
+        THRESHOLD_ACC = 5
+
+        for r in range(accumulator.shape[0]):
+            for t in range(accumulator.shape[1]):
+                if accumulator[r][t] > 5:
+                    if(len(maximun_acc)==0):
+                        maximun_acc.append([r,t])
+                    else:
+                        THRESHOLD_THETA = 50
+                        isClose=False
+                        isMaximun=False
+                        for i in range(len(maximun_acc)):
+                            #se tiver perto
+                            if(np.abs(maximun_acc[i][1]-t)<=THRESHOLD_THETA):
+                                #se o acc source tiver perto do acc dest, e o acc source for maior que o dest
+                                if(accumulator[maximun_acc[i][0]][maximun_acc[i][1]]<=accumulator[r][t] and (not isClose)):
+                                    isMaximun=True
+                                    maximun_acc[i] = [r,t]
+                                isClose=True
+                            #se tiver distante
+                            else:
+                                pass
+                        if((not isClose) and (not isMaximun)):
+                            maximun_acc.append([r,t])
+                            
+
+        NUM_RETAS = 2    
+
+        # indices_maior = np.unravel_index(np.argpartition(-accumulator, NUM_RETAS, axis=None)[:NUM_RETAS], accumulator.shape)
+
+        def draw_hough_lines(img, rho, theta, color=[0, 255, 0], thickness=2):
+            a = np.cos(np.deg2rad(theta))
+            b = np.sin(np.deg2rad(theta))
+            x0 = a*rho
+            y0 = b*rho
+            x1 = int(x0 + 1000*(-b))
+            y1 = int(y0 + 1000*(a))
+            x2 = int(x0 - 1000*(-b))
+            y2 = int(y0 - 1000*(a))
+            cv2.line(img,(x1,y1),(x2,y2),color,thickness)   
+                    
+        print(f'maximun_acc = {maximun_acc}')
+
+        # Imprima os índices e os valores dos três maiores elementos
+        for i in maximun_acc:
+            row, col = i[0], i[1]
+            valor = accumulator[row, col]
+            draw_hough_lines(image,rhos[row], thetas[col])
+            print(f"Índice: ({row}, {col}), Valor: {valor}")
+        return accumulator, rhos, thetas
 
 
-    def segmentField(self, src):
+    def segmentField(self, src, lines):
         """
         Make description here
         """
         # make copy from source image for segmentation
         # segmented_img = src.copy()
-        hsv = src
-        segmented_img = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
+        segmented_img = src
 
         # height and width from image resolution
         height, width = src.shape[0], src.shape[1]
 
-        for line_x in self.vertical_lines:
+        for line_x in lines:
             # segment vertical lines
             for pixel_y in range(0, height):
                 pixel = segmented_img[pixel_y, line_x]
@@ -168,15 +252,37 @@ class FieldDetection():
         return segmented_img        
     
 
+    def segmentWindow(self, src):
+        """
+        Make description here
+        """
+        # make copy from source image for segmentation
+        # segmented_img = src.copy()
+        segmented_img = src
+
+        # height and width from image resolution
+        height, width = src.shape[0], src.shape[1]
+
+        for line_x in range(0, width):
+            # segment vertical lines
+            for pixel_y in range(0, height):
+                pixel = segmented_img[pixel_y, line_x]
+                color = self.segmentPixel(pixel)
+                segmented_img[pixel_y, line_x] = color
+
+        return segmented_img        
+
     def fieldWallDetection(self, src):
         """
         Make descripition here
         """
         # height and width from image resolution
         height, width = src.shape[0], src.shape[1]
+        BOUNDARY_WINDOW = 20
 
         # wall detection points
         boundary_points = []
+        window_boundary_points = []
 
         for line_x in self.vertical_lines:
             wall_points = []
@@ -190,7 +296,33 @@ class FieldDetection():
                 else:
                     wall_points = []
 
-        return boundary_points
+
+        for point in boundary_points:
+
+            # boundary_window = src[point[0]-BOUNDARY_WINDOW:point[0]+BOUNDARY_WINDOW, point[1]-BOUNDARY_WINDOW:point[1]+BOUNDARY_WINDOW]
+            boundary_window = self.preprocessWindow(src, point, BOUNDARY_WINDOW)
+
+            padding_y = point[0]-BOUNDARY_WINDOW
+            padding_X = point[1]-BOUNDARY_WINDOW
+            segmented_window = self.segmentWindow(boundary_window)
+
+            segmented_height, segmented_width, _ = segmented_window.shape
+
+            for line_x in range(0,segmented_width,5):
+                wall_points = []
+                for pixel_y in range(segmented_height-1, 0, -1):
+                    pixel = segmented_window[pixel_y, line_x]
+                    if len(wall_points)>self.min_wall_length:
+                        window_boundary_points.append(wall_points[0])
+                        break
+                    elif self.isBlack(pixel):
+                        wall_points.append([pixel_y+padding_y, line_x+padding_X])
+                    else:
+                        wall_points = []
+
+        
+
+        return boundary_points, window_boundary_points
 
     def fieldLineDetection(self, src):
         """
@@ -235,7 +367,7 @@ class FieldDetection():
         segmented_img = self.segmentField(src)
         boundary_points = self.fieldWallDetection(src)
         field_line_points = self.fieldLineDetection(src)
-        self.boundary = self.getBoundaryPointsOrientation(src, boundary_points=boundary_points)
+        self.boundary  = boundary_points
 
         return boundary_points, field_line_points     
 

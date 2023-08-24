@@ -87,13 +87,21 @@ class FieldDetection():
 
     def segmentPixel(self, src):
         hue, saturation, value = src
-        if (hue>=55 and hue<=85) and saturation>=70:
+        if (hue>=55 and hue<=85) and saturation>=100:
             src = [60,255,255]
         else:
             if value>=100:
                 src = [0,0,255]
             else:
                 src = [0,0,0]
+        return src
+
+    def segmentPixelWindow(self, src):
+        hue, saturation, value = src
+        if value > 90:
+            src = [0,0,255]
+        else:
+            src = [0,0,0]
         return src
 
     def preprocess(self, img, lines):
@@ -113,15 +121,12 @@ class FieldDetection():
         splited_img = img[point[0]-boundary_window:point[0]+boundary_window, point[1]-boundary_window:point[1]+boundary_window]
         kernel = np.ones((5, 5), np.uint8)
         img_dilation = cv2.erode(splited_img, kernel, iterations=1)
-        blur = cv2.GaussianBlur(img_dilation,(3,3),0)
+        blur = cv2.GaussianBlur(img_dilation,(5,5),0)
         hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
 
-        cv2.imshow("hsv", hsv)
+        preprocessed_window = hsv
 
-        key = cv2.waitKey(-1) & 0xFF
-        if key == ord('q'):
-            cv2.destroyAllWindows()
-        return hsv
+        return preprocessed_window
 
     def projectBoundaryLine(self, y1, x1, orientation, is_degree = False):
         """
@@ -150,7 +155,7 @@ class FieldDetection():
         return boundary_ground_points_orientation
 
 
-    def line_detection_non_vectorized(self, image,  boundary_points, num_rhos=1000, num_thetas=1000, t_count=220):
+    def line_detection_non_vectorized(self, image,  boundary_points, num_rhos=150, num_thetas=180, t_count=220):
         
         boundary = boundary_points
         edge_height, edge_width, _ = image.shape
@@ -167,17 +172,21 @@ class FieldDetection():
         sin_thetas = np.sin(np.deg2rad(thetas))
 
         #
-        accumulator = np.zeros((len(rhos), len(rhos)))
+        accumulator = np.zeros((len(rhos), len(thetas)))
         #
-
+        print(f"boundary_points = {boundary}")
         for edge_point in boundary:
             for theta_idx in range(len(thetas)):
                 rho = (edge_point[1] * cos_thetas[theta_idx]) + (edge_point[0] * sin_thetas[theta_idx])
                 theta = thetas[theta_idx]
                 rho_idx = np.argmin(np.abs(rhos - rho))
                 accumulator[rho_idx][theta_idx] += 1
+                if accumulator[rho_idx][theta_idx] == 8:
+                    print(f"rho = {rhos[rho_idx]}, theta = {thetas[theta_idx]}")
+
 
         maximun_acc = []
+        average_parameters = []
 
         THRESHOLD_ACC = 5
 
@@ -186,6 +195,7 @@ class FieldDetection():
                 if accumulator[r][t] > 5:
                     if(len(maximun_acc)==0):
                         maximun_acc.append([r,t])
+                        average_parameters.append([(r,t)])
                     else:
                         THRESHOLD_THETA = 50
                         isClose=False
@@ -195,6 +205,15 @@ class FieldDetection():
                             if(np.abs(maximun_acc[i][1]-t)<=THRESHOLD_THETA):
                                 #se o acc source tiver perto do acc dest, e o acc source for maior que o dest
                                 if(accumulator[maximun_acc[i][0]][maximun_acc[i][1]]<=accumulator[r][t] and (not isClose)):
+                                    print(f"acc of maximun = {accumulator[maximun_acc[i][0]][maximun_acc[i][1]]}, acc newly = {accumulator[r][t]}")
+                                    if(accumulator[maximun_acc[i][0]][maximun_acc[i][1]]==accumulator[r][t]):
+                                        average_parameters[i].append((r,t))
+                                        print(f"average parameter added = {(r,t)} with acc_value = {accumulator[r][t]}")
+                                    else:
+                                        average_parameters[i] = []
+                                        average_parameters[i].append((r,t))
+                                        print("average_parameter empty")
+                                        print(f"average parameter added = {(r,t)} with acc_value = {accumulator[r][t]}")
                                     isMaximun=True
                                     maximun_acc[i] = [r,t]
                                 isClose=True
@@ -203,7 +222,20 @@ class FieldDetection():
                                 pass
                         if((not isClose) and (not isMaximun)):
                             maximun_acc.append([r,t])
+                            average_parameters.append([(r,t)])
                             
+        print(f'average_parameters = {average_parameters}')
+
+        maximun_average_acc = []
+
+        for i in range(len(average_parameters)):
+            average_rho = 0
+            average_theta = 0
+            for j in range(len(average_parameters[i])):
+                average_rho += rhos[average_parameters[i][j][0]]
+                average_theta += thetas[average_parameters[i][j][1]]
+            maximun_average_acc.append([int(np.round(average_rho/len(average_parameters[i]))),int(np.round(average_theta/len(average_parameters[i])))])
+
 
         NUM_RETAS = 2    
 
@@ -220,15 +252,20 @@ class FieldDetection():
             y2 = int(y0 - 1000*(a))
             cv2.line(img,(x1,y1),(x2,y2),color,thickness)   
                     
-        print(f'maximun_acc = {maximun_acc}')
+        
 
-        # Imprima os índices e os valores dos três maiores elementos
-        for i in maximun_acc:
-            row, col = i[0], i[1]
-            valor = accumulator[row, col]
-            draw_hough_lines(image,rhos[row], thetas[col])
-            print(f"Índice: ({row}, {col}), Valor: {valor}")
+        for parameters in maximun_average_acc:
+            draw_hough_lines(image,parameters[0], parameters[1])
+            print(f'Rho = {parameters[0]}, Theta = {parameters[1]}')
+            print(f'maximun_acc = [{rhos[maximun_acc[0][0]]},{thetas[maximun_acc[0][1]]}]')
+            print(f'maximun_average_acc = {maximun_average_acc}\n')
+            
+
         return accumulator, rhos, thetas
+
+
+     
+        # return accumulator, rhos, thetas
 
 
     def segmentField(self, src, lines):
@@ -267,24 +304,16 @@ class FieldDetection():
             # segment vertical lines
             for pixel_y in range(0, height):
                 pixel = segmented_img[pixel_y, line_x]
-                color = self.segmentPixel(pixel)
+                color = self.segmentPixelWindow(pixel)
                 segmented_img[pixel_y, line_x] = color
 
-        return segmented_img        
+        return segmented_img  
 
-    def fieldWallDetection(self, src):
-        """
-        Make descripition here
-        """
-        # height and width from image resolution
+    def findBoundaryPoints(self, src, lines):
         height, width = src.shape[0], src.shape[1]
-        BOUNDARY_WINDOW = 20
-
-        # wall detection points
         boundary_points = []
-        window_boundary_points = []
 
-        for line_x in self.vertical_lines:
+        for line_x in lines:
             wall_points = []
             for pixel_y in range(height-1, 0, -1):
                 pixel = src[pixel_y, line_x]
@@ -296,15 +325,22 @@ class FieldDetection():
                 else:
                     wall_points = []
 
+        return boundary_points
+
+    def findBoundaryWindow(self, window_img, boundary_points, boundary_threshold):
+        window_boundary_points = []
+
+        segmented_img = window_img.copy()
 
         for point in boundary_points:
-
             # boundary_window = src[point[0]-BOUNDARY_WINDOW:point[0]+BOUNDARY_WINDOW, point[1]-BOUNDARY_WINDOW:point[1]+BOUNDARY_WINDOW]
-            boundary_window = self.preprocessWindow(src, point, BOUNDARY_WINDOW)
+            boundary_window = self.preprocessWindow(window_img, point, boundary_threshold)
 
-            padding_y = point[0]-BOUNDARY_WINDOW
-            padding_X = point[1]-BOUNDARY_WINDOW
+            padding_y = point[0]-boundary_threshold
+            padding_X = point[1]-boundary_threshold
             segmented_window = self.segmentWindow(boundary_window)
+
+            segmented_img[point[0]-boundary_threshold:point[0]+boundary_threshold, point[1]-boundary_threshold:point[1]+boundary_threshold] = segmented_window
 
             segmented_height, segmented_width, _ = segmented_window.shape
 
@@ -320,9 +356,27 @@ class FieldDetection():
                     else:
                         wall_points = []
 
-        
+        return window_boundary_points, segmented_img
 
-        return boundary_points, window_boundary_points
+    def fieldWallDetection(self, boundary_img, window_img):
+        """
+        Make descripition here
+        """
+        # height and width from image resolution
+        height, width = boundary_img.shape[0], boundary_img.shape[1]
+        BOUNDARY_WINDOW = 20
+
+        # wall detection points
+        boundary_points = []
+        window_boundary_points = []
+
+        #find boundaries in find_boundary_img
+        boundary_points = self.findBoundaryPoints(boundary_img, self.vertical_lines)
+
+        #find boundary points in window
+        window_boundary_points, segmented_img = self.findBoundaryWindow(window_img, boundary_points, BOUNDARY_WINDOW)
+        
+        return boundary_points, window_boundary_points, segmented_img
 
     def fieldLineDetection(self, src):
         """

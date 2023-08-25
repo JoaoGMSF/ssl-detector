@@ -1,4 +1,3 @@
-from numba import cuda
 import numpy as np
 import time
 import math
@@ -14,6 +13,8 @@ class FieldDetection():
             min_line_length = 1,
             max_line_length = 20,
             min_wall_length = 10,
+            min_goal_length = 30,
+            height_threshold = 10,
             arrange_random = False
             ):
         # DEFINE COLORS:
@@ -27,6 +28,8 @@ class FieldDetection():
         self.min_line_length = min_line_length
         self.max_line_length = max_line_length
         self.min_wall_length = min_wall_length
+        self.min_goal_length = min_goal_length
+        self.height_threshold = height_threshold
 
         # line scans offset
         self.vertical_lines = []
@@ -84,81 +87,122 @@ class FieldDetection():
 
     def segmentPixel(self, src):
         hue, saturation, value = src
-        if (hue>=55 and hue<=85) and saturation>=50:
-            src = self.GREEN
+        if (hue>=55 and hue<=85) and saturation>=100:
+            src = [60,255,255]
         else:
             if value>=100:
-                src = self.WHITE
+                src = [0,0,255]
             else:
-                src = self.BLACK    
+                src = [0,0,0]
         return src
 
-    def validateBoundaryPoints(boundary, height_threshold=20):
-        pass
-
-    def projectBoundaryLine(self, y1, x1, orientation, is_degree = False):
-        if is_degree: orientation = np.deg2rad(orientation)
-        a = np.tan(orientation)
-        b = (y1-1) - a*(x1-1)
-        x2 = int(x1+40)
-        y2 = int(a*x2 + b)
-        return (x1, y1), (x2, y2)
-
+    def segmentPixelWindow(self, src):
+        hue, saturation, value = src
+        if value > 90:
+            src = [0,0,255]
+        else:
+            src = [0,0,0]
+        return src
+    
     def getBoundaryPointsOrientation(self, src, boundary_points):
+        """
+        Recebe os pontos de borda, aplica o sobel, printa uma cruz no ponto, e retorna os pontos de borda no formato
+        ([pixel_y,pixel_x], orientation)
+        """
+
+        sobel_img = src
+         
         boundary_ground_points_orientation = []
         for point in boundary_points:
+            sobel_img[point[0]-2:point[0]+3, point[1]-2:point[1]+3] = self.preprocessWindow(src, point)
             pixel_y, pixel_x = point
             # paint pixel for debug and documentation
-            src[pixel_y, pixel_x] = self.RED
+            sobel_img[pixel_y, pixel_x] = self.RED
             cv2.drawMarker(src, (pixel_x, pixel_y), color=self.RED)
             _, orientation = self.sobel(src, point)
             boundary_ground_points_orientation.append(([pixel_y,pixel_x], orientation))
-        return boundary_ground_points_orientation
+        
+        return boundary_ground_points_orientation, sobel_img
+
 
     def sobel(self, src, pixel):
         pixel_y, pixel_x = pixel
-        A = src[pixel_y-1:pixel_y+2, pixel_x-1:pixel_x+2]
+        A = src[pixel_y-2:pixel_y+3, pixel_x-2:pixel_x+3]
         # blur = cv2.GaussianBlur(A,(3,3),0)
         gray = cv2.cvtColor(A, cv2.COLOR_RGB2GRAY)
         kernel_x = np.array([
-            [-1, 0, 1],
-            [-2, 0, 2],
-            [-1, 0, 1]
+            [5,   4,  0,   -4,   -5],
+            [8,  10,  0,  -10,   -8],
+            [10, 20,  0,  -20,  -10],
+            [8,  10,  0,  -10,   -8],
+            [5,   4,  0,   -4,   -5]
         ])
+
         kernel_y = np.array([
-            [-1, -2, -1],
-            [0, 0, 0],
-            [1, 2, 1]
+            [-5,  -8, -10,  -8, -5],
+            [-4, -10, -20, -10, -4],
+            [ 0,   0,   0,   0,  0],
+            [ 4,  10,  20,  10,  4],
+            [ 5,   8,  10,   8,  5],
         ])
-        #import pdb;pdb.set_trace()
+
         Gx = sum(sum(kernel_x*gray))
         Gy = sum(sum(kernel_y*gray))
         magnitude = np.sqrt(Gx**2 + Gy**2)
         orientation = np.arctan2(Gy, Gx)
-        pt1, pt2 = self.projectBoundaryLine(pixel_y, pixel_x, orientation+np.pi/2)
-        pt1_y= int(pt1[0])
-        pt1_x= int(pt1[1])
-        pt2_y= int(pt2[0])
-        pt2_x= int(pt2[1])
-        # import pdb;pdb.set_trace()
+        pt1, pt2 = self.projectBoundaryLine(pixel_y, pixel_x, orientation, 50)
+
         cv2.line(src,pt1,pt2,color=(0,255,0), thickness=2)
 
         return magnitude, np.rad2deg(orientation)
 
+    def preprocess(self, img, lines):
+        splited_img = None
+        new_img = img
+        for line in lines:
+            splited_img = img[:, line-2:line+3]
+            kernel = np.ones((5, 5), np.uint8)
+            img_dilation = cv2.erode(splited_img, kernel, iterations=1)
+            blur = cv2.GaussianBlur(img_dilation,(3,3),0)
+            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+            new_img[:, line-2:line+3] = hsv 
+        
+        return new_img
+    
+    def preprocessWindow(self, img, point, boundary_window=2):
+        splited_img = img[point[0]-boundary_window:point[0]+boundary_window+1, point[1]-boundary_window:point[1]+boundary_window+1]
+        kernel = np.ones((5, 5), np.uint8)
+        img_dilation = cv2.erode(splited_img, kernel, iterations=1)
+        blur = cv2.GaussianBlur(img_dilation,(3,3),0)
 
-    def segmentField(self, src):
+        preprocessed_window = blur
+
+        return preprocessed_window
+
+    def projectBoundaryLine(self, y1, x1, orientation, line_length, is_degree = False):
+        """
+        função auxiliar para printar uma linha na imagem
+        """
+        if is_degree: orientation = np.deg2rad(orientation)
+        x2 = int(x1 + line_length * math.cos(orientation))
+        y2 = int(y1 - line_length * math.sin(orientation))
+
+        return (x1, y1), (x2, y2)
+
+
+
+    def segmentField(self, src, lines):
         """
         Make description here
         """
         # make copy from source image for segmentation
         # segmented_img = src.copy()
-        hsv = src
-        segmented_img = cv2.cvtColor(hsv, cv2.COLOR_BGR2HSV)
+        segmented_img = src
 
         # height and width from image resolution
         height, width = src.shape[0], src.shape[1]
 
-        for line_x in self.vertical_lines:
+        for line_x in lines:
             # segment vertical lines
             for pixel_y in range(0, height):
                 pixel = segmented_img[pixel_y, line_x]
@@ -168,17 +212,31 @@ class FieldDetection():
         return segmented_img        
     
 
-    def fieldWallDetection(self, src):
+    def segmentWindow(self, src):
         """
-        Make descripition here
+        Make description here
         """
+        # make copy from source image for segmentation
+        # segmented_img = src.copy()
+        segmented_img = src
+
         # height and width from image resolution
         height, width = src.shape[0], src.shape[1]
 
-        # wall detection points
+        for line_x in range(0, width):
+            # segment vertical lines
+            for pixel_y in range(0, height):
+                pixel = segmented_img[pixel_y, line_x]
+                color = self.segmentPixelWindow(pixel)
+                segmented_img[pixel_y, line_x] = color
+
+        return segmented_img  
+
+    def findBoundaryPoints(self, src, lines):
+        height, width = src.shape[0], src.shape[1]
         boundary_points = []
 
-        for line_x in self.vertical_lines:
+        for line_x in lines:
             wall_points = []
             for pixel_y in range(height-1, 0, -1):
                 pixel = src[pixel_y, line_x]
@@ -191,6 +249,56 @@ class FieldDetection():
                     wall_points = []
 
         return boundary_points
+
+    def findBoundaryWindow(self, window_img, boundary_points, boundary_threshold):
+        window_boundary_points = []
+
+        segmented_img = window_img.copy()
+
+        for point in boundary_points:
+            # boundary_window = src[point[0]-BOUNDARY_WINDOW:point[0]+BOUNDARY_WINDOW, point[1]-BOUNDARY_WINDOW:point[1]+BOUNDARY_WINDOW]
+            boundary_window = self.preprocessWindow(window_img, point, boundary_threshold)
+
+            padding_y = point[0]-boundary_threshold
+            padding_X = point[1]-boundary_threshold
+            segmented_window = self.segmentWindow(boundary_window)
+
+            segmented_img[point[0]-boundary_threshold:point[0]+boundary_threshold, point[1]-boundary_threshold:point[1]+boundary_threshold] = segmented_window
+
+            segmented_height, segmented_width, _ = segmented_window.shape
+
+            for line_x in range(0,segmented_width,5):
+                wall_points = []
+                for pixel_y in range(segmented_height-1, 0, -1):
+                    pixel = segmented_window[pixel_y, line_x]
+                    if len(wall_points)>self.min_wall_length:
+                        window_boundary_points.append(wall_points[0])
+                        break
+                    elif self.isBlack(pixel):
+                        wall_points.append([pixel_y+padding_y, line_x+padding_X])
+                    else:
+                        wall_points = []
+
+        return window_boundary_points, segmented_img
+
+    def fieldWallDetection(self, boundary_img, sobel_img):
+        """
+        Make descripition here
+        """
+        # height and width from image resolution
+        height, width = boundary_img.shape[0], boundary_img.shape[1]
+        BOUNDARY_WINDOW = 20
+
+        # wall detection points
+        boundary_points = []
+
+        #find boundaries in find_boundary_img
+        boundary_points = self.findBoundaryPoints(boundary_img, self.vertical_lines)
+        
+        boundary_orientation, sobel_img = self.getBoundaryPointsOrientation(sobel_img, boundary_points)
+
+
+        return boundary_points, boundary_orientation, sobel_img
 
     def fieldLineDetection(self, src):
         """
@@ -235,7 +343,7 @@ class FieldDetection():
         segmented_img = self.segmentField(src)
         boundary_points = self.fieldWallDetection(src)
         field_line_points = self.fieldLineDetection(src)
-        self.boundary = self.getBoundaryPointsOrientation(src, boundary_points=boundary_points)
+        self.boundary  = boundary_points
 
         return boundary_points, field_line_points     
 

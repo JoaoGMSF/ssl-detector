@@ -38,10 +38,6 @@ class FieldDetection():
 
         #points detectes
         self.boundary = []
-
-        self.segmented_image=[[[]]]
-
-        self.mask_points = []
     
     def arrangeLines(self, arrange_random):
         if arrange_random:
@@ -128,34 +124,7 @@ class FieldDetection():
 
         return preprocessed_window
 
-    def projectBoundaryLine(self, y1, x1, orientation, is_degree = False):
-        """
-        função auxiliar para printar uma linha na imagem
-        """
-        if is_degree: orientation = np.deg2rad(orientation)
-        a = np.tan(orientation)
-        b = (y1-1) - a*(x1-1)
-        x2 = int(x1+40)
-        y2 = int(a*x2 + b)
-        return (x1, y1), (x2, y2)
-
-    def getBoundaryPointsOrientation(self, src, boundary_points):
-        """
-        Recebe os pontos de borda, aplica o sobel, printa uma cruz no ponto, e retorna os pontos de borda no formato
-        ([pixel_y,pixel_x], orientation)
-        """
-        boundary_ground_points_orientation = []
-        for point in boundary_points:
-            pixel_y, pixel_x = point
-            # paint pixel for debug and documentation
-            src[pixel_y, pixel_x] = self.RED
-            cv2.drawMarker(src, (pixel_x, pixel_y), color=self.RED)
-            _, orientation = self.sobel(src, point)
-            boundary_ground_points_orientation.append(([pixel_y,pixel_x], orientation))
-        return boundary_ground_points_orientation
-
-
-    def line_detection_non_vectorized(self, image,  boundary_points, num_rhos=150, num_thetas=180, t_count=220):
+    def line_detection_non_vectorized(self, image,  boundary_points, num_rhos=480, num_thetas=180, t_count=220):
         
         boundary = boundary_points
         edge_height, edge_width, _ = image.shape
@@ -252,8 +221,6 @@ class FieldDetection():
             y2 = int(y0 - 1000*(a))
             cv2.line(img,(x1,y1),(x2,y2),color,thickness)   
                     
-        
-
         for parameters in maximun_average_acc:
             draw_hough_lines(image,parameters[0], parameters[1])
             print(f'Rho = {parameters[0]}, Theta = {parameters[1]}')
@@ -262,11 +229,6 @@ class FieldDetection():
             
 
         return accumulator, rhos, thetas
-
-
-     
-        # return accumulator, rhos, thetas
-
 
     def segmentField(self, src, lines):
         """
@@ -288,7 +250,6 @@ class FieldDetection():
 
         return segmented_img        
     
-
     def segmentWindow(self, src):
         """
         Make description here
@@ -412,46 +373,20 @@ class FieldDetection():
 
         return field_line_points      
  
-
     def detectFieldLinesAndBoundary(self, src):
         """
         Make description here
         """
+        first_line_img = src.copy()
+        preprocessed = self.preprocess(first_line_img, self.vertical_lines)
+        segmented_img = self.segmentField(preprocessed, self.vertical_lines)
+        boundary_points, window_boundary_points, window_img = self.fieldWallDetection(segmented_img, src)
 
-        segmented_img = self.segmentField(src)
-        boundary_points = self.fieldWallDetection(src)
-        field_line_points = self.fieldLineDetection(src)
         self.boundary  = boundary_points
 
-        return boundary_points, field_line_points     
+        acc, rhos, theta = self.line_detection_non_vectorized(image=window_img, boundary_points=window_boundary_points)
 
-    def detectFieldLinesAndBoundaryMerged(self, src):
-        """
-        Make description here
-        """
-        # height and width from image resolution
-        height, width = src.shape[0], src.shape[1]
-
-        # wall detection points
-        boundary_points = []
-
-        # field lines detection points
-        field_line_points = []
-
-        for line_x in self.vertical_lines:
-            wall_points = []
-            for pixel_y in range(height-1, 0, -1):
-                pixel = src[pixel_y, line_x]
-                if len(wall_points)>self.min_wall_length:
-                    boundary_points.append(wall_points[0])
-                    break
-                elif self.isBlack(pixel):
-                    wall_points.append([pixel_y, line_x])
-                else:
-                    wall_points = []
-        
-        return boundary_points, field_line_points       
-
+        return boundary_points, window_img
 
 if __name__ == "__main__":
     from glob import glob

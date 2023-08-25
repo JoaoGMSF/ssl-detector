@@ -31,28 +31,10 @@ if __name__ == "__main__":
         print(f'FRAME_NR = {FRAME_NR}')
 
         img = cv2.imread(IMG_PATH)
-        first_lines_img = img.copy()
-
-        preprocessed = field_detector.preprocess(first_lines_img, field_detector.vertical_lines)
-        segmented_img = field_detector.segmentField(preprocessed, field_detector.vertical_lines)
-        boundary_points, window_boundary_points, window_img = field_detector.fieldWallDetection(segmented_img, img)
-
-        field_detector.boundary = boundary_points
-
-        # print(f'boundary_points = {boundary_points}')
-        # print(f'window_boundary_points = {window_boundary_points}')
-
-        for point in window_boundary_points:
-            pixel_y, pixel_x = point
-            window_img[pixel_y, pixel_x] = field_detector.BLUE
-        
-        window_without_line = window_img.copy()
-
-        acc, rhos, theta = field_detector.line_detection_non_vectorized(image=window_img, boundary_points=window_boundary_points)
-
+ 
+        boundary_points, window_img = field_detector.detectFieldLinesAndBoundary(img)
         
         cv2.imshow(WINDOW_NAME, window_img)
-        cv2.imshow("WITHOUT LINE", window_without_line)
 
         subprocess.call(['xdotool', 'search', '--name', WINDOW_NAME, 'windowactivate'])
 

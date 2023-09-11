@@ -1,3 +1,4 @@
+from sklearn.linear_model import LinearRegression
 import numpy as np
 import time
 import math
@@ -99,6 +100,16 @@ class FieldDetection():
         else:
             src = [0,0,0]
         return src
+    
+    def projectBoundaryLine(self, y1, x1, orientation, line_length, is_degree = False):
+        """
+        função auxiliar para printar uma linha na imagem
+        """
+        if is_degree: orientation = np.deg2rad(orientation)
+        x2 = int(x1 + line_length * math.cos(orientation))
+        y2 = int(y1 - line_length * math.sin(orientation))
+
+        return (int(x1), int(y1)), (int(x2), int(y2))
 
     def preprocess(self, img, lines):
         splited_img = None
@@ -337,7 +348,7 @@ class FieldDetection():
         #find boundary points in window
         window_boundary_points, segmented_img = self.findBoundaryWindow(window_img, boundary_points, BOUNDARY_WINDOW)
         
-        return boundary_points, window_boundary_points, segmented_img
+        return window_boundary_points, segmented_img
 
     def fieldLineDetection(self, src):
         """
@@ -380,13 +391,51 @@ class FieldDetection():
         first_line_img = src.copy()
         preprocessed = self.preprocess(first_line_img, self.vertical_lines)
         segmented_img = self.segmentField(preprocessed, self.vertical_lines)
-        boundary_points, window_boundary_points, window_img = self.fieldWallDetection(segmented_img, src)
+        window_boundary_points, window_img = self.fieldWallDetection(segmented_img, src)
 
-        self.boundary  = boundary_points
+        self.boundary  = window_boundary_points
 
         acc, rhos, theta = self.line_detection_non_vectorized(image=window_img, boundary_points=window_boundary_points)
 
-        return boundary_points, window_img
+        return window_boundary_points, window_img
+    
+    def processLinearRegression(self, src):
+        first_line_img = src.copy()
+        preprocessed = self.preprocess(first_line_img, self.vertical_lines)
+        segmented_img = self.segmentField(preprocessed, self.vertical_lines)
+        boundary_points, segmented_img = self.fieldWallDetection(segmented_img, src.copy())
+        x = np.array([i[1] for i in boundary_points])
+        y = np.array([i[0] for i in boundary_points])
+
+        # Crie um objeto do modelo de regressão linear
+        model = LinearRegression()
+
+        try:
+            # Ajuste o modelo aos dados de treinamento
+            model.fit(x.reshape(-1, 1), y)
+
+            # Coeficiente de inclinação (m)
+            slope = -math.atan(model.coef_[0])
+
+            # Interceptação (b)
+            intercept = model.intercept_
+
+            print(f"\n\nslope = {model.coef_[0]}")
+            print(f'intercept = {intercept}\n\n')
+            x_pred = np.array([0, 640])  # Valores de entrada para prever
+            y_pred = model.predict(x_pred.reshape(-1, 1))  # Prever os valores correspondentes de Y
+
+            pt1, pt2 = self.projectBoundaryLine(y_pred[0], x_pred[0], slope, 700)
+
+
+            cv2.line(segmented_img, pt1, pt2, color=(0,0,255), thickness=2)
+        except:
+            pass
+
+        return boundary_points, segmented_img
+
+
+
 
 if __name__ == "__main__":
     from glob import glob

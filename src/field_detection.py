@@ -82,14 +82,11 @@ class FieldDetection():
             return False
 
     def segmentPixel(self, src):
-        hue, saturation, value = src
-        if (hue>=55 and hue<=85) and saturation>=100:
-            src = [60,255,255]
+        hue, light, saturation = src
+        if light>=60:
+            src = [0,0,255]
         else:
-            if value>=100:
-                src = [0,0,255]
-            else:
-                src = [0,0,0]
+            src = [0,0,0]
         return src
 
     def segmentPixelWindow(self, src):
@@ -108,7 +105,7 @@ class FieldDetection():
             kernel = np.ones((5, 5), np.uint8)
             img_dilation = cv2.erode(splited_img, kernel, iterations=1)
             blur = cv2.GaussianBlur(img_dilation,(3,3),0)
-            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HLS)
             new_img[:, line-2:line+3] = hsv 
         
         return new_img
@@ -154,6 +151,8 @@ class FieldDetection():
                     print(f"rho = {rhos[rho_idx]}, theta = {thetas[theta_idx]}")
 
 
+        #TRATAMENTO DE VÁRIAS LINHAS
+
         maximun_acc = []
         average_parameters = []
 
@@ -161,12 +160,12 @@ class FieldDetection():
 
         for r in range(accumulator.shape[0]):
             for t in range(accumulator.shape[1]):
-                if accumulator[r][t] > 5:
+                if accumulator[r][t] > 3:
                     if(len(maximun_acc)==0):
                         maximun_acc.append([r,t])
                         average_parameters.append([(r,t)])
                     else:
-                        THRESHOLD_THETA = 50
+                        THRESHOLD_THETA = 10
                         isClose=False
                         isMaximun=False
                         for i in range(len(maximun_acc)):
@@ -208,7 +207,7 @@ class FieldDetection():
 
         NUM_RETAS = 2    
 
-        # indices_maior = np.unravel_index(np.argpartition(-accumulator, NUM_RETAS, axis=None)[:NUM_RETAS], accumulator.shape)
+        indices_maior = np.unravel_index(np.argpartition(-accumulator, NUM_RETAS, axis=None)[:NUM_RETAS], accumulator.shape)
 
         def draw_hough_lines(img, rho, theta, color=[0, 255, 0], thickness=2):
             a = np.cos(np.deg2rad(theta))
@@ -220,15 +219,14 @@ class FieldDetection():
             x2 = int(x0 - 1000*(-b))
             y2 = int(y0 - 1000*(a))
             cv2.line(img,(x1,y1),(x2,y2),color,thickness)   
-                    
+        
         for parameters in maximun_average_acc:
             draw_hough_lines(image,parameters[0], parameters[1])
             print(f'Rho = {parameters[0]}, Theta = {parameters[1]}')
             print(f'maximun_acc = [{rhos[maximun_acc[0][0]]},{thetas[maximun_acc[0][1]]}]')
             print(f'maximun_average_acc = {maximun_average_acc}\n')
-            
 
-        return accumulator, rhos, thetas
+        return accumulator, rhos, thetas, maximun_average_acc
 
     def segmentField(self, src, lines):
         """
@@ -335,9 +333,11 @@ class FieldDetection():
         boundary_points = self.findBoundaryPoints(boundary_img, self.vertical_lines)
 
         #find boundary points in window
-        window_boundary_points, segmented_img = self.findBoundaryWindow(window_img, boundary_points, BOUNDARY_WINDOW)
+        # window_boundary_points, segmented_img = self.findBoundaryWindow(window_img, boundary_points, BOUNDARY_WINDOW)
         
-        return boundary_points, window_boundary_points, segmented_img
+        # return boundary_points, window_boundary_points, segmented_img
+        return boundary_points
+
 
     def fieldLineDetection(self, src):
         """
@@ -380,13 +380,40 @@ class FieldDetection():
         first_line_img = src.copy()
         preprocessed = self.preprocess(first_line_img, self.vertical_lines)
         segmented_img = self.segmentField(preprocessed, self.vertical_lines)
-        boundary_points, window_boundary_points, window_img = self.fieldWallDetection(segmented_img, src)
+        # boundary_points, window_boundary_points, window_img = self.fieldWallDetection(segmented_img, src)
+        boundary_points = self.fieldWallDetection(segmented_img, src)
 
         self.boundary  = boundary_points
 
-        acc, rhos, theta = self.line_detection_non_vectorized(image=window_img, boundary_points=window_boundary_points)
+        acc, rhos, theta, parameters = self.line_detection_non_vectorized(image=segmented_img, boundary_points=boundary_points)
 
-        return boundary_points, window_img
+        rmse = self.validate(boundary_points, parameters)
+
+        print(f'rmse = {rmse}')
+
+        return boundary_points, first_line_img 
+
+    def validate(self, boundary_points, parameters):
+        
+        sum_difs = 0
+
+        for point in boundary_points:
+            y_line = 0
+            for param in parameters:
+                rho = param[0]
+                theta = param[1]
+                y_line_aux = (rho - (point[1]*np.cos(np.deg2rad(theta))))/np.sin(np.deg2rad(theta))
+                if y_line_aux>y_line:
+                    y_line = y_line_aux
+
+            y_point = point[0]
+            sum_difs += (y_line-y_point)**2
+            print(f"y_line = {y_line}; y_point = {y_point}")
+
+        
+        rmse = math.sqrt(sum_difs/len(boundary_points))
+
+        return rmse
 
 if __name__ == "__main__":
     from glob import glob

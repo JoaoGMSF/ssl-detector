@@ -18,7 +18,7 @@ if __name__ == "__main__":
     # FIELD DETECTION TESTS
     field_detector = FieldDetection(
                     vertical_lines_offset=320,
-                    vertical_lines_nr=1,
+                    vertical_lines_nr=15,
                     min_line_length=1,
                     max_line_length=20,
                     min_wall_length=5,

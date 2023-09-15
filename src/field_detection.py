@@ -83,19 +83,17 @@ class FieldDetection():
             return False
 
     def segmentPixel(self, src):
-        hue, saturation, value = src
-        if (hue>=55 and hue<=85) and saturation>=100:
-            src = [60,255,255]
+        hue, light, saturation = src
+
+        if light>=60:
+            src = [0,0,255]
         else:
-            if value>=100:
-                src = [0,0,255]
-            else:
-                src = [0,0,0]
+            src = [0,0,0]
         return src
 
     def segmentPixelWindow(self, src):
         hue, saturation, value = src
-        if value > 90:
+        if value > 80:
             src = [0,0,255]
         else:
             src = [0,0,0]
@@ -119,7 +117,7 @@ class FieldDetection():
             kernel = np.ones((5, 5), np.uint8)
             img_dilation = cv2.erode(splited_img, kernel, iterations=1)
             blur = cv2.GaussianBlur(img_dilation,(3,3),0)
-            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HLS)
             new_img[:, line-2:line+3] = hsv 
         
         return new_img
@@ -348,7 +346,7 @@ class FieldDetection():
         #find boundary points in window
         window_boundary_points, segmented_img = self.findBoundaryWindow(window_img, boundary_points, BOUNDARY_WINDOW)
         
-        return window_boundary_points, segmented_img
+        return boundary_points, segmented_img
 
     def fieldLineDetection(self, src):
         """
@@ -403,7 +401,7 @@ class FieldDetection():
         first_line_img = src.copy()
         preprocessed = self.preprocess(first_line_img, self.vertical_lines)
         segmented_img = self.segmentField(preprocessed, self.vertical_lines)
-        boundary_points, segmented_img = self.fieldWallDetection(segmented_img, src.copy())
+        boundary_points, _ = self.fieldWallDetection(segmented_img, src.copy())
         x = np.array([i[1] for i in boundary_points])
         y = np.array([i[0] for i in boundary_points])
 
@@ -428,13 +426,29 @@ class FieldDetection():
             pt1, pt2 = self.projectBoundaryLine(y_pred[0], x_pred[0], slope, 700)
 
 
+            rmse = self.validate(boundary_points, slope, intercept)
+
+            print(rmse)
+
             cv2.line(segmented_img, pt1, pt2, color=(0,0,255), thickness=2)
         except:
             pass
 
         return boundary_points, segmented_img
 
+    def validate(self, boundary_points, slope, b):
+        
+        sum_difs = 0
 
+        for point in boundary_points:
+            y_line = point[1]*(-slope) + b
+            y_point = point[0]
+            sum_difs += (y_line-y_point)**2
+            print(f"y_line = {y_line}; y_point = {y_point}")
+
+        rmse = math.sqrt(sum_difs/len(boundary_points))
+
+        return rmse
 
 
 if __name__ == "__main__":

@@ -83,10 +83,14 @@ class FieldDetection():
 
     def segmentPixel(self, src):
         hue, light, saturation = src
-        if light>=60:
+        if (hue>=47 and hue<=112) and saturation>60:
             src = [0,0,255]
+
         else:
-            src = [0,0,0]
+            if light>=85:
+                src = [255,255,255]
+            else:
+                src = [0,0,0]
         return src
 
     def segmentPixelWindow(self, src):
@@ -140,32 +144,33 @@ class FieldDetection():
         #
         accumulator = np.zeros((len(rhos), len(thetas)))
         #
-        print(f"boundary_points = {boundary}")
         for edge_point in boundary:
             for theta_idx in range(len(thetas)):
                 rho = (edge_point[1] * cos_thetas[theta_idx]) + (edge_point[0] * sin_thetas[theta_idx])
                 theta = thetas[theta_idx]
                 rho_idx = np.argmin(np.abs(rhos - rho))
                 accumulator[rho_idx][theta_idx] += 1
-                if accumulator[rho_idx][theta_idx] == 8:
-                    print(f"rho = {rhos[rho_idx]}, theta = {thetas[theta_idx]}")
-
-
+                # if edge_point[1]>430:
+                #     print(f'accumulator da area problematica {edge_point[1]} {accumulator[rho_idx][theta_idx]}, com rho = {rho_idx} e theta = {theta_idx}')
+                #     # if accumulator[rho_idx][theta_idx] > 3:
+                #     #     print(f"edge_point = {edge_point[1]}")
+                    
         #TRATAMENTO DE VÁRIAS LINHAS
 
         maximun_acc = []
         average_parameters = []
 
-        THRESHOLD_ACC = 5
+        THRESHOLD_ACC = 3
 
-        for r in range(accumulator.shape[0]):
-            for t in range(accumulator.shape[1]):
-                if accumulator[r][t] > 3:
+
+        for t in range(accumulator.shape[1]):
+            for r in range(accumulator.shape[0]):
+                if accumulator[r][t] >= THRESHOLD_ACC:
                     if(len(maximun_acc)==0):
                         maximun_acc.append([r,t])
                         average_parameters.append([(r,t)])
                     else:
-                        THRESHOLD_THETA = 10
+                        THRESHOLD_THETA = 6
                         isClose=False
                         isMaximun=False
                         for i in range(len(maximun_acc)):
@@ -173,15 +178,15 @@ class FieldDetection():
                             if(np.abs(maximun_acc[i][1]-t)<=THRESHOLD_THETA):
                                 #se o acc source tiver perto do acc dest, e o acc source for maior que o dest
                                 if(accumulator[maximun_acc[i][0]][maximun_acc[i][1]]<=accumulator[r][t] and (not isClose)):
-                                    print(f"acc of maximun = {accumulator[maximun_acc[i][0]][maximun_acc[i][1]]}, acc newly = {accumulator[r][t]}")
+                                    # print(f"acc of maximun = {accumulator[maximun_acc[i][0]][maximun_acc[i][1]]}, acc newly = {accumulator[r][t]}")
                                     if(accumulator[maximun_acc[i][0]][maximun_acc[i][1]]==accumulator[r][t]):
                                         average_parameters[i].append((r,t))
-                                        print(f"average parameter added = {(r,t)} with acc_value = {accumulator[r][t]}")
+                                        # print(f"average parameter added = {(r,t)} with acc_value = {accumulator[r][t]}")
                                     else:
                                         average_parameters[i] = []
                                         average_parameters[i].append((r,t))
-                                        print("average_parameter empty")
-                                        print(f"average parameter added = {(r,t)} with acc_value = {accumulator[r][t]}")
+                                        # print("average_parameter empty")
+                                        # print(f"average parameter added = {(r,t)} with acc_value = {accumulator[r][t]}")
                                     isMaximun=True
                                     maximun_acc[i] = [r,t]
                                 isClose=True
@@ -192,7 +197,7 @@ class FieldDetection():
                             maximun_acc.append([r,t])
                             average_parameters.append([(r,t)])
                             
-        print(f'average_parameters = {average_parameters}')
+
 
         maximun_average_acc = []
 
@@ -207,8 +212,6 @@ class FieldDetection():
 
         NUM_RETAS = 2    
 
-        indices_maior = np.unravel_index(np.argpartition(-accumulator, NUM_RETAS, axis=None)[:NUM_RETAS], accumulator.shape)
-
         def draw_hough_lines(img, rho, theta, color=[0, 255, 0], thickness=2):
             a = np.cos(np.deg2rad(theta))
             b = np.sin(np.deg2rad(theta))
@@ -222,9 +225,9 @@ class FieldDetection():
         
         for parameters in maximun_average_acc:
             draw_hough_lines(image,parameters[0], parameters[1])
-            print(f'Rho = {parameters[0]}, Theta = {parameters[1]}')
-            print(f'maximun_acc = [{rhos[maximun_acc[0][0]]},{thetas[maximun_acc[0][1]]}]')
-            print(f'maximun_average_acc = {maximun_average_acc}\n')
+            # print(f'Rho = {parameters[0]}, Theta = {parameters[1]}')
+            # print(f'maximun_acc = [{rhos[maximun_acc[0][0]]},{thetas[maximun_acc[0][1]]}]')
+            # print(f'maximun_average_acc = {maximun_average_acc}\n')
 
         return accumulator, rhos, thetas, maximun_average_acc
 
@@ -277,7 +280,14 @@ class FieldDetection():
             for pixel_y in range(height-1, 0, -1):
                 pixel = src[pixel_y, line_x]
                 if len(wall_points)>self.min_wall_length:
-                    boundary_points.append(wall_points[0])
+                    false_boundary = 0
+                    for i in range(10):
+                        if self.isWhite(src[wall_points[0][0]+i,wall_points[0][1]]):
+                            false_boundary += 1
+                    if false_boundary > 7:
+                        pass
+                    else:
+                        boundary_points.append(wall_points[0])
                     break
                 elif self.isBlack(pixel):
                     wall_points.append([pixel_y, line_x])
@@ -408,10 +418,13 @@ class FieldDetection():
 
             y_point = point[0]
             sum_difs += (y_line-y_point)**2
-            print(f"y_line = {y_line}; y_point = {y_point}")
+            # print(f"y_line = {y_line}; y_point = {y_point}")
 
-        
-        rmse = math.sqrt(sum_difs/len(boundary_points))
+        try:
+            rmse = math.sqrt(sum_difs/len(boundary_points))
+        except:
+            print("Error: No boundary points")
+            rmse = 0
 
         return rmse
 

@@ -22,7 +22,7 @@ if __name__ == "__main__":
                     vertical_lines_nr=15,
                     min_line_length=1,
                     max_line_length=20,
-                    min_wall_length=10,
+                    min_wall_length=15,
                     arrange_random=False)
     print(field_detector.vertical_lines)
 
@@ -60,6 +60,11 @@ if __name__ == "__main__":
             img = cv2.imread(IMG_PATH)
     
             boundary_points, window_img = field_detector.detectFieldLinesAndBoundary(img)
+
+
+            for p in boundary_points:
+                pixel_y, pixel_x = p
+                window_img[pixel_y, pixel_x] = field_detector.BLUE
             
             cv2.imshow(WINDOW_NAME, window_img)
 

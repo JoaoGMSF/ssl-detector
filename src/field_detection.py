@@ -65,11 +65,11 @@ class FieldDetection():
         self.vertical_lines = vertical_lines
 
     def isBlack(self, src):
-        blue, green, red = src
-        if green < 70 and red < 70 and blue < 70:
-            return True
-        else:
-            return False
+            blue, green, red = src
+            if green < 70 and red < 70 and blue < 70:
+                return True
+            else:
+                return False
     
     def isGreen(self, src):
         blue, green, red = src
@@ -86,12 +86,13 @@ class FieldDetection():
             return False
 
     def segmentPixel(self, src):
-        hue, saturation, value = src
-        if (hue>=55 and hue<=85) and saturation>=100:
-            src = [60,255,255]
+        hue, light, saturation = src
+        if (hue>=47 and hue<=112) and saturation>60:
+            src = [0,0,255]
+
         else:
-            if value>=100:
-                src = [0,0,255]
+            if light>=85:
+                src = [255,255,255]
             else:
                 src = [0,0,0]
         return src
@@ -111,7 +112,7 @@ class FieldDetection():
         """
 
         sobel_img = src
-         
+        orientation_list = []
         boundary_ground_points_orientation = []
         for point in boundary_points:
             sobel_img[point[0]-2:point[0]+3, point[1]-2:point[1]+3] = self.preprocessWindow(src, point)
@@ -121,8 +122,9 @@ class FieldDetection():
             cv2.drawMarker(src, (pixel_x, pixel_y), color=self.RED)
             _, orientation = self.sobel(src, point)
             boundary_ground_points_orientation.append(([pixel_y,pixel_x], orientation))
-        
-        return boundary_ground_points_orientation, sobel_img
+            orientation_list.append(orientation)
+
+        return boundary_ground_points_orientation, sobel_img, orientation
 
 
     def sobel(self, src, pixel):
@@ -164,7 +166,7 @@ class FieldDetection():
             kernel = np.ones((5, 5), np.uint8)
             img_dilation = cv2.erode(splited_img, kernel, iterations=1)
             blur = cv2.GaussianBlur(img_dilation,(3,3),0)
-            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(blur, cv2.COLOR_BGR2HLS)
             new_img[:, line-2:line+3] = hsv 
         
         return new_img
@@ -241,7 +243,14 @@ class FieldDetection():
             for pixel_y in range(height-1, 0, -1):
                 pixel = src[pixel_y, line_x]
                 if len(wall_points)>self.min_wall_length:
-                    boundary_points.append(wall_points[0])
+                    false_boundary = 0
+                    for i in range(10):
+                        if self.isWhite(src[wall_points[0][0]+i,wall_points[0][1]]):
+                            false_boundary += 1
+                    if false_boundary > 7:
+                        pass
+                    else:
+                        boundary_points.append(wall_points[0])
                     break
                 elif self.isBlack(pixel):
                     wall_points.append([pixel_y, line_x])
@@ -295,10 +304,14 @@ class FieldDetection():
         #find boundaries in find_boundary_img
         boundary_points = self.findBoundaryPoints(boundary_img, self.vertical_lines)
         
-        boundary_orientation, sobel_img = self.getBoundaryPointsOrientation(sobel_img, boundary_points)
+        boundary_orientation, sobel_img, orientation = self.getBoundaryPointsOrientation(sobel_img, boundary_points)
 
+        # ymean_boundary_points = np.mean([point[0] for point in boundary_points])
+        # xmean_boundary_points = np.mean([point[1] for point in boundary_points])
 
-        return boundary_points, boundary_orientation, sobel_img
+        
+
+        return boundary_points, orientation, sobel_img
 
     def fieldLineDetection(self, src):
         """

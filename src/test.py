@@ -36,7 +36,8 @@ if __name__ == "__main__":
         preprocessed = field_detector.preprocess(first_lines_img, field_detector.vertical_lines)
         print_img = preprocessed.copy()
         segmented_img = field_detector.segmentField(preprocessed, field_detector.vertical_lines)
-        boundary_points, boundary_orientation, sobel_img = field_detector.fieldWallDetection(segmented_img, img)
+        boundary_points, orientation, sobel_img = field_detector.fieldWallDetection(segmented_img, img)
+
 
         field_detector.boundary = boundary_points
 

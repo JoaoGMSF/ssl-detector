@@ -623,6 +623,42 @@ class Camera():
         robot_w = math.atan2(robot_y, robot_x)
 
         return robot_x, robot_y, robot_w
+    
+    def robotToCameraCoordinates(self, x, y, camera_offset=90):
+        """
+        Converts x, y ground position from robot axis to camera axis
+        
+        Parameters:
+        x: x position from robot coordinates in millimeters
+        y: y position from robot coordinates in millimeters
+        camera_offset: camera to robot center distance in millimeters
+        -----------
+        Returns:
+        camera_x: x position from camera coordinates in meters
+        camera_y: y position from camera coordinates in meters
+        """
+        camera_x = -1000*y
+        camera_y = 1000*x - camera_offset
+
+        return camera_x, camera_y        
+
+    def robotToPixelCoordinates(self, x, y, camera_offset=90):
+        """
+        Converts x, y ground position from robot axis to a pixel position on screen
+        
+        Parameters:
+        x: x position from robot coordinates in millimeters
+        y: y position from robot coordinates in millimeters
+        camera_offset: camera to robot center distance in millimeters
+        -----------
+        Returns:
+        pixel_x: x position on screen
+        pixel_y: y position on screen
+        """
+        camera_x, camera_y = self.robotToCameraCoordinates(x, y, camera_offset)
+        pixel = self.cameraToPixelCoordinates(x=camera_x, y=camera_y, z_world=0)
+        pixel_x, pixel_y = pixel[0], pixel[1]
+        return pixel_x[0], pixel_y[0]
 
     def pixelToRobotCoordinates(self, pixel_x, pixel_y, z_world):
         # BACK PROJECT OBJECT POSITION TO CAMERA 3D COORDINATES
@@ -632,6 +668,15 @@ class Camera():
         # CONVERT COORDINATES FROM CAMERA TO ROBOT AXIS
         x, y, w = self.cameraToRobotCoordinates(x[0], y[0])
         return x, y, w
+
+    def xyToPolarCoordinates(self, x, y):
+        '''
+        Converts an x, y relative position to relative polar coordinates (distance and bearing angle), as suggested in: 
+            Monte Carlo Localization for Robocup 3D Soccer Simulation League - 2016
+        '''
+        distance = np.sqrt(x**2 + y**2)
+        theta = np.rad2deg(np.arctan2(y, x))
+        return [distance, theta]
 
     def selfLocalizationFromGoalCorners(self, x1, y1, x2, y2):
         theta = math.atan((y2-y1)/(x1-x2))

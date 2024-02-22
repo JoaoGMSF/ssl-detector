@@ -125,18 +125,21 @@ class SocketUDP():
             self.udp_sock.sendto(self.msg.SerializeToString(), (self.device_address, self.device_port))
     
     def recvSSLMessage(self):
-        msg = pb.protoOdometry()
+        msg = pb.protoOdometrySSL()
         # multiple messages are received and accumulated on buffer during vision processing
         # so read until buffer socket are no longer available
+        has_msg = False
         while True:
             try:
                 data, _ = self.udp_sock.recvfrom(1024)
                 msg.ParseFromString(data)
+                has_msg = True
             except:
                 break 
         movement = [msg.x, msg.y, msg.w]
+        vision = [msg.vision_x, msg.vision_y, msg.vision_w]
         
-        return movement, msg.hasBall, msg.kickLoad, msg.battery
+        return has_msg, movement, msg.hasBall, msg.kickLoad, msg.battery, msg.count, vision
 
 
 if __name__ == "__main__":
@@ -154,19 +157,28 @@ if __name__ == "__main__":
         device_port=device_port
     )
 
-    x = 3
-    y = 0
-    w = 0
+    SEND = False
 
-    print(f"Sending X, Y, W Position")
-    print(f"x = {x}, y = {y}, w = {w}")
+    if SEND:
+        x = 1
+        y = 0
+        w = 0
 
-    UDP.msg.posType = pb.protoPositionSSL.driveToTarget
-    UDP.msg.x = x
-    UDP.msg.y = y
-    UDP.msg.w = w
-    UDP.msg.max_speed = 2.5
+        print(f"Sending X, Y, W Position")
+        print(f"x = {x}, y = {y}, w = {w}")
 
-    while(1):
-        UDP.sendSSLMessage()
-        time.sleep(0.033)
+        UDP.msg.posType = pb.protoPositionSSL.driveToTarget
+        UDP.msg.x = x
+        UDP.msg.y = y
+        UDP.msg.w = w
+        UDP.msg.max_speed = 1
+
+        while(1):
+            UDP.sendSSLMessage()
+            time.sleep(0.033)
+    
+    else:
+        while True:
+            has_msg, odometry, hasBall, kickLoad, battery, count, position = UDP.recvSSLMessage()
+            if battery>15:
+                print(f"{odometry}, {hasBall}, {kickLoad:.3f}, {battery:.3f}, {count}, {position}")
